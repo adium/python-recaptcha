@@ -1,4 +1,4 @@
-import urllib2, urllib
+import urllib2, urllib, json
 
 API_SSL_SERVER="https://www.google.com/recaptcha/api"
 API_SERVER="http://www.google.com/recaptcha/api"
@@ -27,36 +27,45 @@ def displayhtml (public_key,
     else:
         server = API_SERVER
 
-    return """<script type="text/javascript" src="%(ApiServer)s/challenge?k=%(PublicKey)s%(ErrorParam)s"></script>
-
-<noscript>
-  <iframe src="%(ApiServer)s/noscript?k=%(PublicKey)s%(ErrorParam)s" height="300" width="500" frameborder="0"></iframe><br />
-  <textarea name="recaptcha_challenge_field" rows="3" cols="40"></textarea>
-  <input type='hidden' name='recaptcha_response_field' value='manual_challenge' />
-</noscript>
-""" % {
-        'ApiServer' : server,
+    return """<script src="https://www.google.com/recaptcha/api.js" async defer></script>
+              <div class="g-recaptcha" data-sitekey="%(PublicKey)s"></div>
+              <noscript>
+                  <div style="width: 302px; height: 352px;">
+                    <div style="width: 302px; height: 352px; position: relative;">
+                      <div style="width: 302px; height: 352px; position: absolute;">
+                        <iframe src="https://www.google.com/recaptcha/api/fallback?k=%(PublicKey)s"
+                                frameborder="0" scrolling="no"
+                                style="width: 302px; height:352px; border-style: none;">
+                        </iframe>
+                      </div>
+                      <div style="width: 250px; height: 80px; position: absolute; border-style: none;
+                                  bottom: 21px; left: 25px; margin: 0px; padding: 0px; right: 25px;">
+                        <textarea id="g-recaptcha-response" name="g-recaptcha-response"
+                                  class="g-recaptcha-response"
+                                  style="width: 250px; height: 80px; border: 1px solid #c1c1c1;
+                                         margin: 0px; padding: 0px; resize: none;" value="">
+                        </textarea>
+                      </div>
+                    </div>
+                  </div>
+                </noscript>""" % {
         'PublicKey' : public_key,
-        'ErrorParam' : error_param,
         }
 
 
-def submit (recaptcha_challenge_field,
-            recaptcha_response_field,
+def submit (recaptcha_response_field,
             private_key,
             remoteip):
     """
     Submits a reCAPTCHA request for verification. Returns RecaptchaResponse
     for the request
-
-    recaptcha_challenge_field -- The value of recaptcha_challenge_field from the form
+    
     recaptcha_response_field -- The value of recaptcha_response_field from the form
     private_key -- your reCAPTCHA private key
     remoteip -- the user's ip address
     """
 
-    if not (recaptcha_response_field and recaptcha_challenge_field and
-            len (recaptcha_response_field) and len (recaptcha_challenge_field)):
+    if not (recaptcha_response_field and len (recaptcha_response_field)):
         return RecaptchaResponse (is_valid = False, error_code = 'incorrect-captcha-sol')
     
 
@@ -65,30 +74,27 @@ def submit (recaptcha_challenge_field,
             return s.encode('utf-8')
         return s
 
-    params = urllib.urlencode ({
-            'privatekey': encode_if_necessary(private_key),
-            'remoteip' :  encode_if_necessary(remoteip),
-            'challenge':  encode_if_necessary(recaptcha_challenge_field),
-            'response' :  encode_if_necessary(recaptcha_response_field),
-            })
+    params = {
+      'secret': private_key,
+      'response': recaptcha_response_field,
+      'remoteip': remoteip
+    }
 
     request = urllib2.Request (
-        url = "http://%s/recaptcha/api/verify" % VERIFY_SERVER,
-        data = params,
+        url = "https://%s/recaptcha/api/siteverify?%s" % (VERIFY_SERVER, urllib.urlencode(params)),
         headers = {
-            "Content-type": "application/x-www-form-urlencoded",
             "User-agent": "reCAPTCHA Python"
             }
         )
     
     httpresp = urllib2.urlopen (request)
 
-    return_values = httpresp.read ().splitlines ();
+    return_values = json.load(httpresp)
     httpresp.close();
 
-    return_code = return_values [0]
+    return_code = return_values ["success"]
 
-    if (return_code == "true"):
+    if (return_code == True):
         return RecaptchaResponse (is_valid=True)
     else:
-        return RecaptchaResponse (is_valid=False, error_code = return_values [1])
+        return RecaptchaResponse (is_valid=False, error_code = return_values ["error-codes"])
